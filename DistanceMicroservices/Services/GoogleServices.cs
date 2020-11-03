@@ -3,10 +3,10 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using System.Net;
 using System.Text.RegularExpressions;
 using Polly;
 using RestSharp;
+using MoreLinq;
 
 namespace DistanceMicroservices.Services
 {
@@ -23,14 +23,12 @@ namespace DistanceMicroservices.Services
         public List<DistributionCenterDistance> GetDistanceDataFromGoogle(string destination, List<GoogleOriginData> branches)
         {
             var distances = new List<DistributionCenterDistance>();
+            // Send in batches of 100 as to not exceed the request's character limit
+            var batchedBranches = branches.Batch(100);
 
-            const int branchesBatchSize = 100;
-
-            for (var i = 0; i < branches.Count; i += branchesBatchSize)
+            foreach(var branchesBatch in batchedBranches)
             {
-                var branchesBatch = branches.Skip(i).Take(branchesBatchSize).ToList();
-                
-                var distancesToAdd = GetBatchedDistanceDataFromGoogle(destination, branchesBatch);
+                var distancesToAdd = GetBatchedDistanceDataFromGoogle(destination, branchesBatch.ToList());
 
                 distances.AddRange(distancesToAdd);
             }
@@ -51,11 +49,11 @@ namespace DistanceMicroservices.Services
                     // Remove special characters from address, otherwise Google will throw exception
                     branch.Address1 = Regex.Replace(branch.Address1, "[^a-zA-Z0-9_.]+", "", RegexOptions.Compiled);
 
-                    origins.Add($"{branch.Address1}%2B{branch.City}%2B{branch.State}%2B{branch.Zip}");
+                    origins.Add($"{branch.Address1}+{branch.City}+{branch.State}+{branch.Zip}");
                 }
                 else
                 {
-                    origins.Add($"{branch.Latitude}%2C{branch.Longitude}");
+                    origins.Add($"{branch.Latitude},{branch.Longitude}");
                 }
             }
 
@@ -107,16 +105,16 @@ namespace DistanceMicroservices.Services
 
             return retryPolicy.Execute(() =>
             {
-                var originString = string.Join("%7C", origins);
+                var originString = string.Join("|", origins);
                 var key = Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
                 var baseUrl = $"https://maps.googleapis.com/maps/api/distancematrix/json";
 
                 var client = new RestClient(baseUrl);
                 var request = new RestRequest(Method.GET)
-                    .AddParameter("region", "us")
-                    .AddParameter("key", key)
-                    .AddParameter("origins", originString)
-                    .AddParameter("destinations", destination);
+                    .AddParameter("region", "us", ParameterType.QueryStringWithoutEncode)
+                    .AddParameter("key", key, ParameterType.QueryStringWithoutEncode)
+                    .AddParameter("origins", originString, ParameterType.QueryStringWithoutEncode)
+                    .AddParameter("destinations", destination, ParameterType.QueryStringWithoutEncode);
 
                 var jsonResponse = client.Execute(request).Content;
 
