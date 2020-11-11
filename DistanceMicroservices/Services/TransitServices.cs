@@ -124,10 +124,14 @@ namespace DistanceMicroservices.Services
 
                 using (var conn = new SqlConnection(connString))
                 {
+                    // Upsert
                     var query = @"
-                        UPDATE FergusonIntegration.sourcing.DistributionCenterDistance 
-                        SET BusinessTransitDays = @businessDaysInTransit, SaturdayDelivery = @saturdayDelivery 
-                        WHERE BranchNumber = @branchNumber AND ZipCode = @destinationZip";
+                        IF NOT EXISTS (SELECT * FROM FergusonIntegration.sourcing.DistributionCenterDistance WHERE BranchNumber = @branchNumber AND ZipCode = @destinationZip)
+                            INSERT INTO FergusonIntegration.sourcing.DistributionCenterDistance (BranchNumber, ZipCode, BusinessTransitDays)
+                            VALUES (@branchNumber, @destinationZip, @businessDaysInTransit)
+                        ELSE
+                            UPDATE FergusonIntegration.sourcing.DistributionCenterDistance 
+                            SET BusinessTransitDays = @businessDaysInTransit";
 
                     conn.Open();
 

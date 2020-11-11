@@ -71,7 +71,10 @@ namespace DistanceMicroservices
                     }
                 }
 
-                if (branchesWithDistance != null && branchesWithDistance.Count() > 0) 
+                // If distance data is null for each branch, return error
+                var isMissingDistances = branchesWithDistance.Where(b => b.Value == null).Count() == branchesWithDistance.Count;
+
+                if (branchesWithDistance != null && branchesWithDistance.Count() > 0 && !isMissingDistances) 
                     return new OkObjectResult(branchesWithDistance);
 
                 var errMessage = $"No distances found for zip code: {zipCode} and branches: {branches}";

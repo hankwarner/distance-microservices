@@ -18,7 +18,7 @@ namespace DistanceMicroservices.Services
             _logger = log;
         }
 
-        public Dictionary<string, double> RequestBranchDistancesByZipCode(string zipCode, List<string> branches)
+        public Dictionary<string, double?> RequestBranchDistancesByZipCode(string zipCode, List<string> branches)
         {
             try
             {
@@ -37,7 +37,7 @@ namespace DistanceMicroservices.Services
                     var branchesWithDistanceList = conn.Query(query, new { zipCode, branches }, commandTimeout: 6)
                         .ToDictionary(
                             row => (string)row.BranchNumber,
-                            row => (double)row.DistanceInMiles)
+                            row => (double?)row.DistanceInMiles)
                         .ToList();
 
                     var branchesWithDistance = branchesWithDistanceList.ToDictionary(pair => pair.Key, pair => pair.Value);
@@ -75,10 +75,13 @@ namespace DistanceMicroservices.Services
 
             var branchDistances = _googleServices.GetDistanceDataFromGoogle(zipCode, origins);
 
-            _ = Task.Run(() =>
+            if (branchDistances.Count > 0)
             {
-                SaveBranchDistanceData(branchDistances);
-            });
+                _ = Task.Run(() =>
+                {
+                    SaveBranchDistanceData(branchDistances);
+                });
+            }
 
             return (from distributionCenterDistance in branchDistances
                     let miles = Math.Ceiling(distributionCenterDistance.DistanceInMeters * 0.0006213712)

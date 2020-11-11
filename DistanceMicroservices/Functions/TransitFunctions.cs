@@ -70,6 +70,23 @@ namespace DistanceMicroservices.Functions
                     catch (Exception ex)
                     {
                         log.LogError(ex, $"Exception when adding missing distance data.");
+                        // TODO: send to Teams
+                    }
+                }
+
+                // If Google did not return any distance data, initialize an empty dictionary with branch numbers
+                if (distanceDataDict == null || distanceDataDict.Count() == 0)
+                {
+                    distanceDataDict = branches
+                        .ToDictionary(branchNum => branchNum, branchNum => new DistanceData() { BranchNumber = branchNum });
+                }
+
+                if (branches.Count() != distanceDataDict.Count())
+                {
+                    // Add missing branches to dict
+                    foreach (var branch in branches.Except(distanceDataDict.Keys))
+                    {
+                        distanceDataDict.TryAdd(branch, new DistanceData() { BranchNumber = branch });
                     }
                 }
 
@@ -88,8 +105,7 @@ namespace DistanceMicroservices.Functions
                         // set origin zip codes
                         foreach (var branch in branchesMissingDaysInTransit)
                         {
-                            DistanceData originData;
-                            originZipCodeDict.TryGetValue(branch.BranchNumber, out originData);
+                            originZipCodeDict.TryGetValue(branch.BranchNumber, out DistanceData originData);
                             branch.Zip = originData.Zip.Substring(0, 5);
                         }
 
