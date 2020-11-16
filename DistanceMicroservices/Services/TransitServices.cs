@@ -61,7 +61,7 @@ namespace DistanceMicroservices.Services
 
         public void SetMissingDaysInTransitData(string destinationZip, IEnumerable<DistanceData> branchesMissingDaysInTransit, Dictionary<string, DistanceData> distanceDataDict)
         {
-            var url = @"https://fergusonupsintegration.azurewebsites.net/api/tnt";
+            var url = @"https://ups-microservices.azurewebsites.net/api/tnt";
             var client = new RestClient(url);
 
             foreach (var branch in branchesMissingDaysInTransit)
