@@ -11,6 +11,7 @@ using System.Web;
 using DistanceMicroservices.Services;
 using DistanceMicroservices.Models;
 using System.Linq;
+using System.Threading.Tasks;
 
 namespace DistanceMicroservices.Functions
 {
@@ -22,7 +23,7 @@ namespace DistanceMicroservices.Functions
         [ProducesResponseType((int)HttpStatusCode.BadRequest, Type = typeof(BadRequestObjectResult))]
         [ProducesResponseType((int)HttpStatusCode.NotFound, Type = typeof(NotFoundObjectResult))]
         [ProducesResponseType((int)HttpStatusCode.InternalServerError, Type = typeof(StatusCodeResult))]
-        public static IActionResult GetTransitDataByZipCode(
+        public static async Task<IActionResult> GetTransitDataByZipCode(
             [HttpTrigger(AuthorizationLevel.Function, "get", Route = "transit/{zipCode}")] HttpRequest req,
             string zipCode,
             ILogger log)
@@ -56,7 +57,7 @@ namespace DistanceMicroservices.Functions
                         var branchesWithData = distanceDataDict.Keys.ToList();
                         var branchesMissingDistance = branches.Except(branchesWithData).ToList();
 
-                        var missingDistanceData = _distanceServices.GetMissingBranchDistances(zipCode, branchesMissingDistance);
+                        var missingDistanceData = await _distanceServices.GetMissingBranchDistances(zipCode, branchesMissingDistance);
 
                         foreach (var newDistance in missingDistanceData)
                         {

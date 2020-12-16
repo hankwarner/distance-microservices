@@ -4,9 +4,6 @@ namespace DistanceMicroservices.Models
 {
     public class DistanceData
     {
-        [JsonProperty("locationNetSuiteId")]
-        public int NetSuiteListId { get; set; }
-
         [JsonProperty("distanceFromZip")]
         public decimal DistanceInMiles { get; set; }
 
@@ -17,14 +14,5 @@ namespace DistanceMicroservices.Models
         public int? BusinessTransitDays { get; set; }
 
         public bool SaturdayDelivery { get; set; }
-
-        [JsonProperty("masterProductNumber")]
-        public string MPID { get; set; }
-
-        public int DistributionCenterNetSuiteId { get; set; }
-
-        public int Quantity { get; set; }
-
-        public string Error { get; set; } = null;
     }
 }

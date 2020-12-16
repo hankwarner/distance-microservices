@@ -37,7 +37,7 @@ namespace DistanceMicroservices.Services
 
             return retryPolicy.Execute(() =>
             {
-                var connString = Environment.GetEnvironmentVariable("DIST_DB_CONN");
+                var connString = Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN");
 
                 using (var conn = new SqlConnection(connString))
                 {
@@ -120,7 +120,7 @@ namespace DistanceMicroservices.Services
                 var businessDaysInTransit = tnt.BusinessTransitDays;
                 var saturdayDelivery = tnt.SaturdayDelivery;
 
-                var connString = Environment.GetEnvironmentVariable("DIST_DB_CONN");
+                var connString = Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN");
 
                 using (var conn = new SqlConnection(connString))
                 {
