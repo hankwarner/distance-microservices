@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Linq;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace DistanceMicroservices.Services
 {
@@ -18,36 +19,70 @@ namespace DistanceMicroservices.Services
             _logger = log;
         }
 
-        public List<GoogleOriginData> GetOriginDataForGoogle(List<string> branches)
+        public async Task<List<GoogleOriginData>> GetOriginDataForGoogle(List<string> branches)
         {
             try
             {
-                var connString = Environment.GetEnvironmentVariable("DC_DB_CONN");
-
-                using (var conn = new SqlConnection(connString))
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
                     conn.Open();
 
                     var query = @"
                         SELECT BranchNumber, Latitude, Longitude, Address1, City, State, Zip 
-                        FROM [FergusonIntegration].[sourcing].[DistributionCenter] 
+                        FROM Data.DistributionCenter 
                         WHERE BranchNumber in @branches";
 
-                    var originData = conn.Query<GoogleOriginData>(query, new { branches }, commandTimeout: 6).ToList();
+                    var originData = await conn.QueryAsync<GoogleOriginData>(query, new { branches }, commandTimeout: 6);
 
                     conn.Close();
 
-                    return originData;
+                    return originData.ToList();
                 }
             }
             catch (SqlException ex)
             {
-                _logger.LogError(ex, "Sql Exception in GetOriginDataForGoogle");
+                _logger.LogError(@"SqlException in GetOriginDataForGoogle: {0}", ex);
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Exception in GetOriginDataForGoogle");
+                _logger.LogError(@"Exception in GetOriginDataForGoogle: {0}", ex);
+                throw;
+            }
+        }
+
+
+        public async Task SetBranchZipCodes(List<string> branches, Dictionary<string, UPSTransitData> transitDict)
+        {
+            try
+            {
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
+                {
+                    conn.Open();
+
+                    var query = @"
+                        SELECT BranchNumber, Zip as BranchZip 
+                        FROM Data.DistributionCenter 
+                        WHERE BranchNumber in @branches";
+
+                    var results = await conn.QueryAsync<UPSTransitData>(query, new { branches }, commandTimeout: 3);
+
+                    conn.Close();
+
+                    // Add zip codes to transitDict
+                    foreach (var row in results)
+                    {
+                        var branchNum = row.BranchNumber;
+
+                        transitDict[branchNum].BranchZip = row.BranchZip;
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(@"Exception in SetBranchZipCodes: {0}", ex);
                 throw;
             }
         }
@@ -57,7 +92,7 @@ namespace DistanceMicroservices.Services
         {
             try
             {
-                var connString = Environment.GetEnvironmentVariable("DC_DB_CONN");
+                var connString = Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN");
 
                 using (var conn = new SqlConnection(connString))
                 {

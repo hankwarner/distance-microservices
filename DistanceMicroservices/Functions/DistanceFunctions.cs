@@ -11,20 +11,28 @@ using System.Linq;
 using DistanceMicroservices.Models;
 using System.Net;
 using AzureFunctions.Extensions.Swashbuckle.Attribute;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace DistanceMicroservices
 {
     public class DistanceFunctions
     {
         public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
+        public static IConfiguration _config { get; set; }
+
+        public DistanceFunctions(IConfiguration config)
+        {
+            _config = config;
+        }
 
         [FunctionName("GetBranchDistancesByZipCode")]
         [QueryStringParameter("branch", "Branch Number", Required = true)]
-        [ProducesResponseType((int)HttpStatusCode.OK, Type = typeof(Dictionary<string, double>))]
-        [ProducesResponseType((int)HttpStatusCode.BadRequest, Type = typeof(BadRequestObjectResult))]
-        [ProducesResponseType((int)HttpStatusCode.NotFound, Type = typeof(NotFoundObjectResult))]
-        [ProducesResponseType((int)HttpStatusCode.InternalServerError, Type = typeof(StatusCodeResult))]
-        public static IActionResult GetBranchDistancesByZipCode(
+        [ProducesResponseType(typeof(Dictionary<string, double?>), 200)]
+        [ProducesResponseType(typeof(BadRequestObjectResult), 400)]
+        [ProducesResponseType(typeof(NotFoundObjectResult), 404)]
+        [ProducesResponseType(typeof(ObjectResult), 500)]
+        public static async Task<IActionResult> GetBranchDistancesByZipCode(
             [HttpTrigger(AuthorizationLevel.Function, "get", Route = "distance/{zipCode}")] HttpRequest req,
             string zipCode,
             ILogger log)
@@ -33,7 +41,7 @@ namespace DistanceMicroservices
             {
                 var query = HttpUtility.ParseQueryString(req.QueryString.ToString());
                 var branchNumArr = query.Get("branch")?.Split(",");
-                log.LogInformation(@"Branch numbers:", branchNumArr);
+                log.LogInformation(@"Branch numbers: {0}", branchNumArr);
 
                 if (branchNumArr == null)
                 {
@@ -45,54 +53,46 @@ namespace DistanceMicroservices
                     };
                 }
 
+                var _services = new DistanceServices(log);
                 var branches = new List<string>(branchNumArr);
 
-                var _services = new DistanceServices(log);
+                var distanceDict = branches.ToDictionary(b => b, b => (double?)0.0);
 
-                var branchesWithDistance = _services.RequestBranchDistancesByZipCode(zipCode, branches);
+                await _services.SetBranchDistances(zipCode, branches, distanceDict);
 
-                if (branchesWithDistance == null || branches.Count != branchesWithDistance.Count)
+                // Check for branches missing distance in meters
+                var branchesMissingDistance = distanceDict.Where(b => b.Value == null || b.Value == 0)
+                    .Select(b => b.Key).ToList();
+
+                if (branchesMissingDistance.Any())
                 {
+                    log.LogInformation(@"Branches Missing Distance: {0}", branchesMissingDistance);
+
                     try
                     {
-                        var missingBranches = branches.Where(b1 => !branchesWithDistance.Any(b2 => b1 == b2.Key)).ToList();
+                        // Get missing distance from Google Distance Matrix API
+                        var missingDistanceData = await _services.GetMissingBranchDistances(zipCode, branchesMissingDistance);
 
-                        var missingDistanceData = _services.GetMissingBranchDistances(zipCode, missingBranches);
-
-                        foreach (var newDistance in missingDistanceData)
-                        {
-                            branchesWithDistance.Add(newDistance.Key, newDistance.Value);
-                        }
+                        // Add to distanceDict response
+                        foreach(var distToAdd in missingDistanceData){ distanceDict[distToAdd.Key] = distToAdd.Value; };
                     }
-                    catch (Exception ex)
+                    catch(Exception ex)
                     {
-                        string errorMessage = $"Exception in GetMissingBranchDistances: ";
-                        log.LogError(ex, errorMessage);
+                        log.LogError(@"Exception getting missing branch distances: {0}", ex);
                     }
                 }
 
-                // If distance data is null for each branch, return error
-                var isMissingDistances = branchesWithDistance.Where(b => b.Value == null).Count() == branchesWithDistance.Count;
-
-                if (branchesWithDistance != null && branchesWithDistance.Count() > 0 && !isMissingDistances) 
-                    return new OkObjectResult(branchesWithDistance);
-
-                var errMessage = $"No distances found for zip code: {zipCode} and branches: {branches}";
-                log.LogError(errMessage);
-                return new NotFoundObjectResult("Invalid branch number(s)")
-                {
-                    Value = errMessage,
-                    StatusCode = 404
-                };
+                return new OkObjectResult(distanceDict);
             }
             catch(Exception ex)
             {
                 var title = "Exception in GetBranchDistancesByZipCode";
-                log.LogError(ex, title);
+                log.LogError(@"{0}: {1}", title, ex);
+#if !DEBUG
                 var teamsMessage = new TeamsMessage(title, $"Error message: {ex.Message}. Stacktrace: {ex.StackTrace}", "red", errorLogsUrl);
                 teamsMessage.LogToTeams(teamsMessage);
-
-                return new StatusCodeResult(500);
+#endif
+                return new ObjectResult(ex.Message) { StatusCode = 500, Value = "Failure" };
             }
         }
     }

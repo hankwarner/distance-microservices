@@ -18,30 +18,68 @@ namespace DistanceMicroservices.Services
             _logger = log;
         }
 
+        public async Task SetBranchDistances(string destinationZip, List<string> branches, Dictionary<string, double?> distanceDict)
+        {
+            try
+            {
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
+                {
+                    conn.Open();
+
+                    var query = @"
+                        SELECT BranchNumber, CEILING(DistanceInMeters * 0.0006213712) DistanceInMiles  
+                        FROM Data.DistributionCenterDistance 
+                        WHERE ZipCode = @destinationZip AND BranchNumber in @branches";
+
+                    var results = await conn.QueryAsync<DistanceData>(query, new { destinationZip, branches }, commandTimeout: 10);
+
+                    conn.Close();
+
+                    // Add results to distanceDict
+                    foreach (var row in results){ distanceDict[row.BranchNumber] = (double?)row.DistanceInMiles; };
+
+                    return;
+                }
+            }
+            catch (SqlException ex)
+            {
+                var errMessage = $"SqlException in SetBranchDistances";
+                _logger.LogError(@"{0}: {1}", errMessage, ex);
+#if !DEBUG
+                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                teamsMessage.LogToTeams(teamsMessage);
+#endif
+                throw;
+            }
+            catch (Exception ex)
+            {
+                var errMessage = $"Exception in SetBranchDistances";
+                _logger.LogError(@"{0}: {1}", errMessage, ex);
+#if !DEBUG
+                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                teamsMessage.LogToTeams(teamsMessage);
+#endif
+                throw;
+            }
+        }
+
         public Dictionary<string, double?> RequestBranchDistancesByZipCode(string zipCode, List<string> branches)
         {
             try
             {
-                var connString = Environment.GetEnvironmentVariable("DIST_DB_CONN");
-
-                using (var conn = new SqlConnection(connString))
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
                     conn.Open();
 
-                    // TODO: update this when new DB is created
                     var query = @"
-                        SELECT BranchNumber, BusinessTransitDays, CEILING(DistanceInMeters * 0.0006213712) DistanceInMiles, SaturdayDelivery 
-                        FROM FergusonIntegration.sourcing.DistributionCenterDistance 
+                        SELECT BranchNumber, CEILING(DistanceInMeters * 0.0006213712) DistanceInMiles  
+                        FROM Data.DistributionCenterDistance 
                         WHERE ZipCode = @zipCode AND BranchNumber in @branches";
 
-                    var branchesWithDistanceList = conn.Query(query, new { zipCode, branches }, commandTimeout: 6)
-                        .ToDictionary(
-                            row => (string)row.BranchNumber,
-                            row => (double?)row.DistanceInMiles)
-                        .ToList();
-
-                    var branchesWithDistance = branchesWithDistanceList.ToDictionary(pair => pair.Key, pair => pair.Value);
-
+                    var branchesWithDistance = conn.Query(query, new { zipCode, branches }, commandTimeout: 6)
+                        .ToDictionary(row => (string)row.BranchNumber,
+                                      row => (double?)row.DistanceInMiles);
+                    
                     conn.Close();
 
                     return branchesWithDistance;
@@ -49,86 +87,94 @@ namespace DistanceMicroservices.Services
             }
             catch (SqlException ex)
             {
-                string errorMessage = $"Sql Exception in RequestBranchDistancesByZipCode";
-                var teamsMessage = new TeamsMessage(errorMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                var errMessage = $"SqlException in RequestBranchDistancesByZipCode";
+                _logger.LogError(@"{0}: {1}", errMessage, ex);
+#if !DEBUG
+                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
                 teamsMessage.LogToTeams(teamsMessage);
-                _logger.LogError(ex, errorMessage);
+#endif
                 throw;
             }
             catch (Exception ex)
             {
-                string errorMessage = $"Error in RequestBranchDistancesByZipCode";
-                var teamsMessage = new TeamsMessage(errorMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                var errMessage = $"Exception in RequestBranchDistancesByZipCode";
+                _logger.LogError(@"{0}: {1}", errMessage, ex);
+#if !DEBUG
+                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
                 teamsMessage.LogToTeams(teamsMessage);
-                _logger.LogError(ex, errorMessage);
+#endif
                 throw;
             }
         }
 
 
-        public IEnumerable<KeyValuePair<string, double>> GetMissingBranchDistances(string zipCode, List<string> missingBranches)
+        public async Task<Dictionary<string, double?>> GetMissingBranchDistances(string zipCode, List<string> missingBranches)
         {
             var _locationServices = new LocationServices(_logger);
             var _googleServices = new GoogleServices(_logger);
 
-            var origins = _locationServices.GetOriginDataForGoogle(missingBranches);
+            var origins = await _locationServices.GetOriginDataForGoogle(missingBranches);
 
-            var branchDistances = _googleServices.GetDistanceDataFromGoogle(zipCode, origins);
+            var branchDistances = await _googleServices.GetDistanceDataFromGoogle(zipCode, origins);
 
-            if (branchDistances.Count > 0)
+            if (branchDistances.Any())
             {
-                _ = Task.Run(() =>
-                {
-                    SaveBranchDistanceData(branchDistances);
-                });
+                _ = SaveBranchDistanceData(branchDistances);
             }
 
-            return (from distributionCenterDistance in branchDistances
-                    let miles = Math.Ceiling(distributionCenterDistance.DistanceInMeters * 0.0006213712)
-                    select new KeyValuePair<string, double>(distributionCenterDistance.BranchNumber, miles)).ToList();
+            // Create dictionary where key = branch number
+            var response = branchDistances.ToDictionary(b => b.BranchNumber, b => (double?)b.DistanceInMeters);
+
+            return response;
         }
 
 
-        public bool SaveBranchDistanceData(List<DistributionCenterDistance> branchDistances)
+        public async Task SaveBranchDistanceData(List<DistributionCenterDistance> branchDistances)
         {
             try
             {
-                var connString = Environment.GetEnvironmentVariable("DIST_DB_CONN");
-
-                var insertStatement = "INSERT INTO FergusonIntegration.sourcing.DistributionCenterDistance (BranchNumber, ZipCode, DistanceInMeters, BusinessTransitDays, SaturdayDelivery) VALUES";
-                
-                for (var i = 0; i < branchDistances.Count(); i++)
+                foreach(var distanceData in branchDistances)
                 {
-                    insertStatement += $"('{branchDistances[i].BranchNumber}','{branchDistances[i].ZipCode}',{branchDistances[i].DistanceInMeters},null,null)";
-                    if (i != (branchDistances.Count() - 1))
-                    {
-                        insertStatement += ",";
-                    }
-                }
+                    var branchNum = distanceData.BranchNumber;
+                    var zip = distanceData.ZipCode;
+                    var distance = distanceData.DistanceInMeters;
 
-                using (var conn = new SqlConnection(connString))
-                {
-                    conn.Open();
-                    var newRows = conn.Execute(insertStatement, commandTimeout: 6);
-                    if (newRows != branchDistances.Count())
+                    try
                     {
-                        return false;
-                    }
-                    conn.Close();
+                        using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
+                        {
+                            conn.Open();
 
-                    return true;
+                            // Upsert
+                            var query = @"
+                            IF NOT EXISTS (SELECT * FROM Data.DistributionCenterDistance WHERE BranchNumber = @branchNum AND ZipCode = @zip)
+                                INSERT INTO Data.DistributionCenterDistance (BranchNumber, ZipCode, DistanceInMeters)
+                                VALUES (@branchNum, @zip, @distance)
+                            ELSE
+                                UPDATE Data.DistributionCenterDistance 
+                                SET DistanceInMeters = @distance  
+                                WHERE BranchNumber = @branchNum AND ZipCode = @zip";
+
+                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 30);
+
+                            conn.Close();
+                            _logger?.LogInformation($"Saved distance data for branch number {branchNum}.");
+                        }
+                    }
+                    catch (SqlException ex)
+                    {
+                        _logger?.LogError(@"SqlException saving data for branch {0}: {1}", branchNum, ex);
+                    }
                 }
             }
             catch (SqlException ex)
             {
-                var errorMessage = $"Sql Exception in SaveBranchDistanceData: ";
-                _logger.LogError(ex, errorMessage);
+                _logger?.LogError(@"SqlException saving data: {0}", ex);
                 throw;
             }
             catch (Exception ex)
             {
-                var errorMessage = $"Error in SaveBranchDistanceData: ";
-                _logger.LogError(ex, errorMessage);
+                _logger?.LogError(@"Exception in SaveBranchDistanceData: {0}", ex);
                 throw;
             }
         }
