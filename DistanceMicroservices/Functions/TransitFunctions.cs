@@ -41,7 +41,7 @@ namespace DistanceMicroservices.Functions
             {
                 var query = HttpUtility.ParseQueryString(req.QueryString.ToString());
                 var branchNumArr = query.Get("branch")?.Split(",");
-                log.LogInformation(@"Branch numbers: {0}", branchNumArr);
+                log.LogInformation(@"Branch numbers: {0}", branchNumArr.ToList());
 
                 if (branchNumArr == null)
                 {
