@@ -160,7 +160,7 @@ namespace DistanceMicroservices.Services
 
                     await conn.ExecuteAsync(query,
                         new { businessDaysInTransit, branchNumber, destinationZip },
-                        commandTimeout: 30);
+                        commandTimeout: 120);
 
                     conn.Close();
                     _logger?.LogInformation($"Saved data for Branch zip: {branchNumber}. Destination zip: {destinationZip}");
