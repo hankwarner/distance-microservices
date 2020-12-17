@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Data.SqlClient;
 using System.Linq;
 using Polly;
+using System.Threading.Tasks;
 
 namespace DistanceMicroservices.Services
 {
@@ -21,125 +22,142 @@ namespace DistanceMicroservices.Services
         }
 
 
-        public Dictionary<string, DistanceData> RequestDistanceAndTransitDataByZipCode(string zipCode, List<string> branches)
+        public async Task SetTransitData(string zipCode, List<string> branches, Dictionary<string, UPSTransitData> transitDict)
         {
-            var retryPolicy = Policy.Handle<SqlException>().Retry(3, (ex, count) =>
+            try
             {
-                const string errorMessage = "SqlException6 in RequestDistanceAndTransitDataByZipCode";
-                _logger.LogWarning(ex, $"{errorMessage} . Retrying...");
-                if (count == 3)
-                {
-                    var teamsMessage = new TeamsMessage(errorMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
-                    teamsMessage.LogToTeams(teamsMessage);
-                    _logger.LogError(ex, errorMessage);
-                }
-            });
-
-            return retryPolicy.Execute(() =>
-            {
-                var connString = Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN");
-
-                using (var conn = new SqlConnection(connString))
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
                     conn.Open();
 
                     var query = @"
-                        SELECT BranchNumber, BusinessTransitDays, CEILING(DistanceInMeters * 0.0006213712) DistanceInMiles, SaturdayDelivery 
-                        FROM FergusonIntegration.sourcing.DistributionCenterDistance 
+                        SELECT BranchNumber, BusinessTransitDays, SaturdayDelivery 
+                        FROM Data.DistributionCenterDistance 
                         WHERE ZipCode = @zipCode AND BranchNumber in @branches";
 
-                    var branchesWithDistance = conn.Query<DistanceData>(query, new { zipCode, branches }, commandTimeout: 6)
-                        .ToDictionary(row => row.BranchNumber, row => row);
+                    var results = await conn.QueryAsync<UPSTransitData>(query, new { zipCode, branches }, commandTimeout: 15);
 
                     conn.Close();
 
-                    return branchesWithDistance;
+                    // Add results to transitDict
+                    foreach (var row in results)
+                    {
+                        var branchNum = row.BranchNumber;
+
+                        transitDict[branchNum] = new UPSTransitData(row.BranchNumber, row.BusinessTransitDays, row.SaturdayDelivery);
+                    }
                 }
-            });
-        }
-
-
-        public void SetMissingDaysInTransitData(string destinationZip, IEnumerable<DistanceData> branchesMissingDaysInTransit, Dictionary<string, DistanceData> distanceDataDict)
-        {
-            var url = @"https://ups-microservices.azurewebsites.net/api/tnt";
-            var client = new RestClient(url);
-
-            foreach (var branch in branchesMissingDaysInTransit)
+            }
+            catch (Exception ex)
             {
-                try
-                {
-                    if (string.IsNullOrEmpty(branch.Zip)) continue;
-
-                    var request = new RestRequest(Method.GET)
-                        .AddQueryParameter("code", Environment.GetEnvironmentVariable("AZ_GET_BUSINESS_DAYS_IN_TRANSIT_KEY"))
-                        .AddQueryParameter("originZip", branch.Zip)
-                        .AddQueryParameter("destinationZip", destinationZip);
-
-                    // Call UPS to get time in transit
-                    var response = client.Execute(request).Content;
-
-                    if (string.IsNullOrEmpty(response)) continue;
-
-                    var tnt = JsonConvert.DeserializeObject<TimeInTransitResponse>(response);
-
-                    // Add business days in transit to distance dict
-                    distanceDataDict[branch.BranchNumber].BusinessTransitDays = tnt.BusinessTransitDays;
-                    distanceDataDict[branch.BranchNumber].SaturdayDelivery = tnt.SaturdayDelivery;
-
-                    // Write back to table
-                    SaveDaysInTransitData(tnt, branch.BranchNumber, destinationZip);
-                }
-                catch (Exception ex)
-                {
-                    var title = "Exception in SetMissingDaysInTransitData";
-                    _logger.LogError(ex, title);
-                    var teamsMessage = new TeamsMessage(title, $"Error message: {ex.Message}. Stacktrace: {ex.StackTrace}", "red", DistanceFunctions.errorLogsUrl);
-                    teamsMessage.LogToTeams(teamsMessage);
-                }
+                _logger.LogError(@"Exception in RequestTransitData: {0}", ex);
+                throw;
             }
         }
 
 
-        public void SaveDaysInTransitData(TimeInTransitResponse tnt, string branchNumber, string destinationZip)
+        public async Task SetMissingDaysInTransitData(string destinationZip, List<string> branchesMissingData, Dictionary<string, UPSTransitData> transitDict)
+        {
+            var transitTasks = new List<Task>();
+
+            foreach (var branchNum in branchesMissingData)
+            {
+                var originZip = transitDict[branchNum].BranchZip;
+
+                if (string.IsNullOrEmpty(originZip)) continue;
+
+                transitTasks.Add(SetUPSTransitData(branchNum, originZip, destinationZip, transitDict));
+            }
+
+            await Task.WhenAll(transitTasks);
+        }
+
+
+        public async Task SetUPSTransitData(string branchNum, string originZip, string destinationZip, Dictionary<string, UPSTransitData> transitDict)
+        {
+            try
+            {
+                _logger?.LogInformation($"Branch zip: {originZip}. Destination zip: {destinationZip}");
+
+                var url = @"https://ups-microservices.azurewebsites.net/api/tnt";
+                var client = new RestClient(url);
+
+                var request = new RestRequest(Method.GET)
+                    .AddQueryParameter("code", Environment.GetEnvironmentVariable("UPS_MICROSERVICE_KEY"))
+                    .AddQueryParameter("originZip", originZip.Substring(0, 5))
+                    .AddQueryParameter("destinationZip", destinationZip);
+
+                // Call UPS to get time in transit
+                var upsTask = client.ExecuteAsync(request);
+
+                var response = await upsTask;
+                var jsonResponse = response.Content;
+
+                if (string.IsNullOrEmpty(jsonResponse))
+                {
+                    _logger.LogWarning($"UPS returned null response for origin zip {originZip}.");
+                    return;
+                }
+
+                var tnt = JsonConvert.DeserializeObject<TimeInTransitResponse>(jsonResponse);
+
+                // Add business days in transit to transitDict
+                transitDict[branchNum].BusinessTransitDays = tnt.BusinessTransitDays;
+                _logger?.LogInformation($"Business days in transit {transitDict[branchNum].BusinessTransitDays}");
+                transitDict[branchNum].SaturdayDelivery = tnt.SaturdayDelivery;
+
+                // Write back to table
+                _ = SaveTransitData(tnt, branchNum, destinationZip);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogError(@"Exception in SetMissingDaysInTransitData: {0}", ex);
+            }
+        }
+
+
+        public async Task SaveTransitData(TimeInTransitResponse tnt, string branchNumber, string destinationZip)
         {
 
             var retryPolicy = Policy.Handle<SqlException>().Retry(3, (ex, count) =>
             {
-                const string errorMessage = "SqlException6 in SaveDaysInTransitData";
-                _logger.LogWarning(ex, $"{errorMessage} . Retrying...");
+                var title = "SqlException in SaveTransitData";
+                _logger.LogWarning(@"{0}. Retrying...: {1}", title, ex);
                 if (count == 3)
                 {
-                    var teamsMessage = new TeamsMessage(errorMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+#if !DEBUG
+                    var teamsMessage = new TeamsMessage(title, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
-                    _logger.LogError(ex, errorMessage);
+#endif
+                    _logger.LogError(@"{0}: {1}", title, ex);
                 }
             });
 
-            retryPolicy.Execute(() =>
+            await retryPolicy.Execute(async () =>
             {
                 var businessDaysInTransit = tnt.BusinessTransitDays;
                 var saturdayDelivery = tnt.SaturdayDelivery;
 
-                var connString = Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN");
-
-                using (var conn = new SqlConnection(connString))
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
                     // Upsert
                     var query = @"
-                        IF NOT EXISTS (SELECT * FROM FergusonIntegration.sourcing.DistributionCenterDistance WHERE BranchNumber = @branchNumber AND ZipCode = @destinationZip)
-                            INSERT INTO FergusonIntegration.sourcing.DistributionCenterDistance (BranchNumber, ZipCode, BusinessTransitDays)
+                        IF NOT EXISTS (SELECT * FROM Data.DistributionCenterDistance WHERE BranchNumber = @branchNumber AND ZipCode = @destinationZip)
+                            INSERT INTO Data.DistributionCenterDistance (BranchNumber, ZipCode, BusinessTransitDays)
                             VALUES (@branchNumber, @destinationZip, @businessDaysInTransit)
                         ELSE
-                            UPDATE FergusonIntegration.sourcing.DistributionCenterDistance 
-                            SET BusinessTransitDays = @businessDaysInTransit";
+                            UPDATE Data.DistributionCenterDistance 
+                            SET BusinessTransitDays = @businessDaysInTransit
+                            WHERE BranchNumber = @branchNumber AND ZipCode = @destinationZip";
 
                     conn.Open();
 
-                    conn.Execute(query,
+                    await conn.ExecuteAsync(query,
                         new { businessDaysInTransit, saturdayDelivery, branchNumber, destinationZip },
                         commandTimeout: 10);
 
                     conn.Close();
+                    _logger?.LogInformation($"Saved data for Branch zip: {branchNumber}. Destination zip: {destinationZip}");
                 }
             });
         }

@@ -40,7 +40,7 @@ namespace DistanceMicroservices.Tests
                 new DistributionCenterDistance()
                 {
                     DistanceInMeters = 3529531,
-                    BranchNumber = "123TestBranch",
+                    BranchNumber = "123Test",
                     ZipCode = "30316"
                 }
             };
@@ -49,7 +49,12 @@ namespace DistanceMicroservices.Tests
 
             var results = GetDistanceDataFromDB(branchDistances[0]);
 
-            Assert.Equal(branchDistances[0], results);
+            Assert.Equal(branchDistances[0].DistanceInMeters, results.DistanceInMeters);
+
+            if (results != null)
+            {
+                DeleteTestDistanceData(branchDistances[0]);
+            }
         }
 
 
@@ -67,7 +72,7 @@ namespace DistanceMicroservices.Tests
                     FROM Data.DistributionCenterDistance
                     WHERE BranchNumber = @branchNum AND ZipCode = @zipCode";
 
-                var results = conn.QueryFirstOrDefault<DistributionCenterDistance>(query, new { branchNum, zipCode }, commandTimeout: 6);
+                var results = conn.QueryFirstOrDefault<DistributionCenterDistance>(query, new { branchNum, zipCode }, commandTimeout: 30);
 
                 conn.Close();
              
@@ -89,7 +94,7 @@ namespace DistanceMicroservices.Tests
                     DELETE FROM Data.DistributionCenterDistance
                     WHERE BranchNumber = @branchNum AND ZipCode = @zipCode";
 
-                conn.Execute(query, new { branchNum, zipCode }, commandTimeout: 6);
+                conn.Execute(query, new { branchNum, zipCode }, commandTimeout: 12);
 
                 conn.Close();
             }

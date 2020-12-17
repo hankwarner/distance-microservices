@@ -12,12 +12,19 @@ using DistanceMicroservices.Models;
 using System.Net;
 using AzureFunctions.Extensions.Swashbuckle.Attribute;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace DistanceMicroservices
 {
     public class DistanceFunctions
     {
         public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
+        public static IConfiguration _config { get; set; }
+
+        public DistanceFunctions(IConfiguration config)
+        {
+            _config = config;
+        }
 
         [FunctionName("GetBranchDistancesByZipCode")]
         [QueryStringParameter("branch", "Branch Number", Required = true)]

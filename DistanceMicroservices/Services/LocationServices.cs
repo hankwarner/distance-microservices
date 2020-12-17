@@ -23,8 +23,7 @@ namespace DistanceMicroservices.Services
         {
             try
             {
-                using (var conn = new SqlConnection("Server=tcp:feiazprdspsrcengdb001.database.windows.net,1433;Initial Catalog=feiazprdspsrcengdb1;Persist Security Info=False;User ID=supply-utility-account;Password=K99Z5GhV3znHjM7kPX;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"))
-                //using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
                     conn.Open();
 
@@ -48,6 +47,42 @@ namespace DistanceMicroservices.Services
             catch (Exception ex)
             {
                 _logger.LogError(@"Exception in GetOriginDataForGoogle: {0}", ex);
+                throw;
+            }
+        }
+
+
+        public async Task SetBranchZipCodes(List<string> branches, Dictionary<string, UPSTransitData> transitDict)
+        {
+            try
+            {
+                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
+                {
+                    conn.Open();
+
+                    var query = @"
+                        SELECT BranchNumber, Zip as BranchZip 
+                        FROM Data.DistributionCenter 
+                        WHERE BranchNumber in @branches";
+
+                    var results = await conn.QueryAsync<UPSTransitData>(query, new { branches }, commandTimeout: 3);
+
+                    conn.Close();
+
+                    // Add zip codes to transitDict
+                    foreach (var row in results)
+                    {
+                        var branchNum = row.BranchNumber;
+
+                        transitDict[branchNum].BranchZip = row.BranchZip;
+                    }
+
+                    return;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(@"Exception in SetBranchZipCodes: {0}", ex);
                 throw;
             }
         }

@@ -155,61 +155,26 @@ namespace DistanceMicroservices.Services
                                 SET DistanceInMeters = @distance  
                                 WHERE BranchNumber = @branchNum AND ZipCode = @zip";
 
-                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 120);
+                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 30);
 
                             conn.Close();
-                            _logger.LogInformation($"Saved distance data for branch number {branchNum}.");
+                            _logger?.LogInformation($"Saved distance data for branch number {branchNum}.");
                         }
                     }
                     catch (SqlException ex)
                     {
-                        _logger.LogError(@"SqlException saving data for branch {0}: {1}", branchNum, ex);
+                        _logger?.LogError(@"SqlException saving data for branch {0}: {1}", branchNum, ex);
                     }
                 }
-                
-                //branchDistances.ForEach(async distanceData =>
-                //{
-                //    var branchNum = distanceData.BranchNumber;
-                //    var zip = distanceData.ZipCode;
-                //    var distance = distanceData.DistanceInMeters;
-
-                //    try
-                //    {
-                //        //using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
-                //        using (var conn = new SqlConnection("Server=tcp:feiazprdspsrcengdb001.database.windows.net,1433;Initial Catalog=feiazprdspsrcengdb1;Persist Security Info=False;User ID=supply-utility-account;Password=K99Z5GhV3znHjM7kPX;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;"))
-                //        {
-                //            conn.Open();
-
-                //            // Upsert
-                //            var query = @"
-                //            IF NOT EXISTS (SELECT * FROM Data.DistributionCenterDistance WHERE BranchNumber = @branchNum AND ZipCode = @zip)
-                //                INSERT INTO Data.DistributionCenterDistance (BranchNumber, ZipCode, DistanceInMeters)
-                //                VALUES (@branchNum, @zip, @distance)
-                //            ELSE
-                //                UPDATE Data.DistributionCenterDistance 
-                //                SET DistanceInMeters = @distance  
-                //                WHERE BranchNumber = @branchNum AND ZipCode = @zip";
-
-                //            var res = await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 6);
-                //            Console.WriteLine(res);
-                //            conn.Close();
-                //            _logger.LogInformation($"Saved distance data for branch number {branchNum}.");
-                //        }
-                //    }
-                //    catch (SqlException ex)
-                //    {
-                //        _logger.LogError(@"SqlException saving data for branch {0}: {1}", branchNum, ex);
-                //    }
-                //});
             }
             catch (SqlException ex)
             {
-                _logger.LogError(@"SqlException saving data: {0}", ex);
+                _logger?.LogError(@"SqlException saving data: {0}", ex);
                 throw;
             }
             catch (Exception ex)
             {
-                _logger.LogError(@"Exception in SaveBranchDistanceData: {0}", ex);
+                _logger?.LogError(@"Exception in SaveBranchDistanceData: {0}", ex);
                 throw;
             }
         }
