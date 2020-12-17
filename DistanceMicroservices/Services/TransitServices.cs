@@ -58,6 +58,7 @@ namespace DistanceMicroservices.Services
 
         public async Task SetMissingDaysInTransitData(string destinationZip, List<string> branchesMissingData, Dictionary<string, UPSTransitData> transitDict)
         {
+            _logger?.LogInformation("SetMissingDaysInTransitData start");
             var transitTasks = new List<Task>();
 
             foreach (var branchNum in branchesMissingData)
@@ -70,6 +71,7 @@ namespace DistanceMicroservices.Services
             }
 
             await Task.WhenAll(transitTasks);
+            _logger?.LogInformation("SetMissingDaysInTransitData finish");
         }
 
 
@@ -77,6 +79,7 @@ namespace DistanceMicroservices.Services
         {
             try
             {
+                _logger?.LogInformation("SetUPSTransitData start");
                 _logger?.LogInformation($"Branch zip: {originZip}. Destination zip: {destinationZip}");
 
                 var url = @"https://ups-microservices.azurewebsites.net/api/tnt";
@@ -108,6 +111,8 @@ namespace DistanceMicroservices.Services
 
                 // Write back to table
                 _ = SaveTransitData(tnt, branchNum, destinationZip);
+
+                _logger?.LogInformation("SetUPSTransitData finish");
             }
             catch (Exception ex)
             {
@@ -135,8 +140,9 @@ namespace DistanceMicroservices.Services
 
             await retryPolicy.Execute(async () =>
             {
+                _logger?.LogInformation("SaveTransitData start");
                 var businessDaysInTransit = tnt.BusinessTransitDays;
-                var saturdayDelivery = tnt.SaturdayDelivery;
+                _logger?.LogInformation($"businessDaysInTransit { businessDaysInTransit}.");
 
                 using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
@@ -153,11 +159,12 @@ namespace DistanceMicroservices.Services
                     conn.Open();
 
                     await conn.ExecuteAsync(query,
-                        new { businessDaysInTransit, saturdayDelivery, branchNumber, destinationZip },
-                        commandTimeout: 10);
+                        new { businessDaysInTransit, branchNumber, destinationZip },
+                        commandTimeout: 30);
 
                     conn.Close();
                     _logger?.LogInformation($"Saved data for Branch zip: {branchNumber}. Destination zip: {destinationZip}");
+                    _logger?.LogInformation("SaveTransitData finish");
                 }
             });
         }
