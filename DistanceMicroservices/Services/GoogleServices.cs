@@ -7,6 +7,7 @@ using System.Text.RegularExpressions;
 using Polly;
 using RestSharp;
 using MoreLinq;
+using System.Threading.Tasks;
 
 namespace DistanceMicroservices.Services
 {
@@ -20,44 +21,44 @@ namespace DistanceMicroservices.Services
         }
 
 
-        public List<DistributionCenterDistance> GetDistanceDataFromGoogle(string destination, List<GoogleOriginData> branches)
+        public async Task<List<DistributionCenterDistance>> GetDistanceDataFromGoogle(string destinationZip, List<GoogleOriginData> branches)
         {
             var distances = new List<DistributionCenterDistance>();
+            var distanceTasks = new List<Task<List<DistributionCenterDistance>>>();
+
             // Send in batches of 100 as to not exceed the request's character limit
             var batchedBranches = branches.Batch(100);
 
-            foreach(var branchesBatch in batchedBranches)
+            foreach (var branchesBatch in batchedBranches)
             {
-                var distancesToAdd = GetBatchedDistanceDataFromGoogle(destination, branchesBatch.ToList());
+                distanceTasks.Add(GetBatchedDistanceDataFromGoogle(destinationZip, branchesBatch.ToList()));
+            }
 
-                distances.AddRange(distancesToAdd);
+            var distancesToAdd = await Task.WhenAll(distanceTasks);
+
+            foreach (var dist in distancesToAdd)
+            {
+                distances.AddRange(dist);
             }
 
             return distances;
         }
 
 
-        private List<DistributionCenterDistance> GetBatchedDistanceDataFromGoogle(string destination, List<GoogleOriginData> branches)
+        private async Task<List<DistributionCenterDistance>> GetBatchedDistanceDataFromGoogle(string destinationZip, List<GoogleOriginData> branches)
         {
             var origins = new List<string>();
             var distances = new List<DistributionCenterDistance>();
 
             foreach (var branch in branches)
             {
-                if (branch.Latitude == null && branch.Longitude == null)
-                {
-                    // Remove special characters from address, otherwise Google will throw exception
-                    branch.Address1 = Regex.Replace(branch.Address1, "[^a-zA-Z0-9_.]+", "", RegexOptions.Compiled);
-
-                    origins.Add($"{branch.Address1}+{branch.City}+{branch.State}+{branch.Zip}");
-                }
+                if (branch.Latitude == null || branch.Longitude == null)
+                    origins.Add($"{branch.City}+{branch.State}+{branch.Zip}");
                 else
-                {
                     origins.Add($"{branch.Latitude},{branch.Longitude}");
-                }
             }
 
-            var response = SendDistanceMatrixRequestToGoogle(origins, destination);
+            var response = await SendDistanceMatrixRequestToGoogle(origins, destinationZip);
 
             var responseOrigins = response.OriginAddresses;
 
@@ -68,7 +69,6 @@ namespace DistanceMicroservices.Services
                 for (var j = 0; j < results.Length; j++)
                 {
                     var element = results[j];
-                    var destinationZip = destination;
 
                     if (!element.Status.Equals(Status.Ok)) continue;
 
@@ -89,39 +89,42 @@ namespace DistanceMicroservices.Services
         }
 
 
-        public GoogleDistanceMatrixAPIResponse SendDistanceMatrixRequestToGoogle(List<string> origins, string destination)
+        public async Task<GoogleDistanceMatrixAPIResponse> SendDistanceMatrixRequestToGoogle(List<string> origins, string destination)
         {
             var retryPolicy = Policy.Handle<Exception>().Retry(5, (ex,count) =>
             {
-                const string errorMessage = "Error in SendDistanceMatrixRequestToGoogle";
-                _logger.LogWarning(ex, $"{errorMessage} . Retrying...");
+                var errMessage = "Error in SendDistanceMatrixRequestToGoogle";
+                _logger.LogWarning("{0}. Retrying... : {1}", errMessage, ex);
                 if (count == 5)
                 {
-                    var teamsMessage = new TeamsMessage(errorMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+#if !DEBUG
+                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
-                    _logger.LogError(ex, errorMessage);
+#endif
+                    _logger.LogError(@"{0}: {1}", errMessage, ex);
                 }
             });
 
-            return retryPolicy.Execute(() =>
-            {
-                var originString = string.Join("|", origins);
-                var key = Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
-                var baseUrl = $"https://maps.googleapis.com/maps/api/distancematrix/json";
+            return await retryPolicy.Execute(async () =>
+             {
+                 var originString = string.Join("|", origins);
+                 var key = Environment.GetEnvironmentVariable("GOOGLE_API_KEY");
+                 var baseUrl = $"https://maps.googleapis.com/maps/api/distancematrix/json";
 
-                var client = new RestClient(baseUrl);
-                var request = new RestRequest(Method.GET)
-                    .AddParameter("region", "us", ParameterType.QueryStringWithoutEncode)
-                    .AddParameter("key", key, ParameterType.QueryStringWithoutEncode)
-                    .AddParameter("origins", originString, ParameterType.QueryStringWithoutEncode)
-                    .AddParameter("destinations", destination, ParameterType.QueryStringWithoutEncode);
+                 var client = new RestClient(baseUrl);
+                 var request = new RestRequest(Method.GET)
+                     .AddParameter("region", "us", ParameterType.QueryStringWithoutEncode)
+                     .AddParameter("key", key, ParameterType.QueryStringWithoutEncode)
+                     .AddParameter("origins", originString, ParameterType.QueryStringWithoutEncode)
+                     .AddParameter("destinations", destination, ParameterType.QueryStringWithoutEncode);
 
-                var jsonResponse = client.Execute(request).Content;
+                 var restResponse = await client.ExecuteAsync(request);
+                 var jsonResponse = restResponse.Content;
 
-                var response = GoogleDistanceMatrixAPIResponse.FromJson(jsonResponse);
+                 var response = GoogleDistanceMatrixAPIResponse.FromJson(jsonResponse);
 
-                return response;
-            });
+                 return response;
+             });
         }
     }
 }

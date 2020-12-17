@@ -5,33 +5,43 @@ using Microsoft.Azure.WebJobs.Extensions.Http;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging;
 using AzureFunctions.Extensions.Swashbuckle.Attribute;
-using System.Net;
 using System.Collections.Generic;
 using System.Web;
 using DistanceMicroservices.Services;
 using DistanceMicroservices.Models;
 using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace DistanceMicroservices.Functions
 {
-    public static class TransitFunctions
+    public class TransitFunctions
     {
-        [FunctionName("GetDistanceAndTransitDataByZipCode")]
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
+        public static IConfiguration _config { get; set; }
+
+        public TransitFunctions(IConfiguration config)
+        {
+            _config = config;
+        }
+
+
+        [FunctionName("GetBusinessDaysInTransit")]
         [QueryStringParameter("branch", "Branch Number", Required = true)]
-        [ProducesResponseType((int)HttpStatusCode.OK, Type = typeof(Dictionary<string, DistanceData>))]
-        [ProducesResponseType((int)HttpStatusCode.BadRequest, Type = typeof(BadRequestObjectResult))]
-        [ProducesResponseType((int)HttpStatusCode.NotFound, Type = typeof(NotFoundObjectResult))]
-        [ProducesResponseType((int)HttpStatusCode.InternalServerError, Type = typeof(StatusCodeResult))]
-        public static IActionResult GetTransitDataByZipCode(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "transit/{zipCode}")] HttpRequest req,
-            string zipCode,
+        [ProducesResponseType(typeof(Dictionary<string, double?>), 200)]
+        [ProducesResponseType(typeof(BadRequestObjectResult), 400)]
+        [ProducesResponseType(typeof(NotFoundObjectResult), 404)]
+        [ProducesResponseType(typeof(ObjectResult), 500)]
+        public static async Task<IActionResult> GetBusinessDaysInTransit(
+            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "transit/{destinationZip}")] HttpRequest req,
+            string destinationZip,
             ILogger log)
         {
             try
             {
                 var query = HttpUtility.ParseQueryString(req.QueryString.ToString());
                 var branchNumArr = query.Get("branch")?.Split(",");
-                log.LogInformation(@"Branch numbers:", branchNumArr);
+                log.LogInformation(@"Branch numbers: {0}", branchNumArr);
 
                 if (branchNumArr == null)
                 {
@@ -45,99 +55,46 @@ namespace DistanceMicroservices.Functions
 
                 var branches = new List<string>(branchNumArr);
                 var _transitServices = new TransitServices(log);
-                var _distanceServices = new DistanceServices(log);
+                var _locationServices = new LocationServices(log);
 
-                var distanceDataDict = _transitServices.RequestDistanceAndTransitDataByZipCode(zipCode, branches);
+                // Init transitDict
+                var transitDict = branches.ToDictionary(b => b, b => new UPSTransitData());
 
-                if (distanceDataDict == null || branches.Count != distanceDataDict.Count)
+                // Query DB for existing transit data and set in transitDict
+                await _transitServices.SetTransitData(destinationZip, branches, transitDict);
+
+                // Check if any branches are missing business days in transit
+                var branchesMissingData = transitDict.Where(b => b.Value.BusinessTransitDays == null || b.Value.BusinessTransitDays == 0)
+                    .Select(b => b.Key).ToList();
+
+                // If any are missing, call UPS and add to transitDict
+                if (branchesMissingData.Any())
                 {
                     try
                     {
-                        var branchesWithData = distanceDataDict.Keys.ToList();
-                        var branchesMissingDistance = branches.Except(branchesWithData).ToList();
-
-                        var missingDistanceData = _distanceServices.GetMissingBranchDistances(zipCode, branchesMissingDistance);
-
-                        foreach (var newDistance in missingDistanceData)
-                        {
-                            distanceDataDict.Add(newDistance.Key, new DistanceData
-                            {
-                                DistanceInMiles = (decimal)newDistance.Value,
-                                BranchNumber = newDistance.Key
-                            });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        log.LogError(ex, $"Exception when adding missing distance data.");
-                        // TODO: send to Teams
-                    }
-                }
-
-                // If Google did not return any distance data, initialize an empty dictionary with branch numbers
-                if (distanceDataDict == null || distanceDataDict.Count() == 0)
-                {
-                    distanceDataDict = branches
-                        .ToDictionary(branchNum => branchNum, branchNum => new DistanceData() { BranchNumber = branchNum });
-                }
-
-                if (branches.Count() != distanceDataDict.Count())
-                {
-                    // Add missing branches to dict
-                    foreach (var branch in branches.Except(distanceDataDict.Keys))
-                    {
-                        distanceDataDict.TryAdd(branch, new DistanceData() { BranchNumber = branch });
-                    }
-                }
-
-                // Handle missing business days in transit
-                var branchesMissingDaysInTransit = distanceDataDict.Values.Where(d => d.BusinessTransitDays == null);
-
-                if (branchesMissingDaysInTransit.Any())
-                {
-                    try
-                    {
-                        var _locationServices = new LocationServices(log);
-                        // Get the zip codes for the missing branches
-                        var originZipCodeDict = _locationServices.GetBranchZipCodes(branchesMissingDaysInTransit
-                            .Select(d => d.BranchNumber).ToList());
-
-                        // set origin zip codes
-                        foreach (var branch in branchesMissingDaysInTransit)
-                        {
-                            originZipCodeDict.TryGetValue(branch.BranchNumber, out DistanceData originData);
-                            branch.Zip = originData.Zip.Substring(0, 5);
-                        }
+                        // Set the zip codes for the missing branches for the UPS call
+                        await _locationServices.SetBranchZipCodes(branchesMissingData, transitDict);
 
                         // Call UPS to get business days in transit that are missing
-                        _transitServices.SetMissingDaysInTransitData(zipCode, branchesMissingDaysInTransit, distanceDataDict);
+                        await _transitServices.SetMissingDaysInTransitData(destinationZip, branchesMissingData, transitDict);
                     }
                     catch (Exception ex)
                     {
-                        log.LogError(ex, "Exception while getting missing business days in transit.");
+                        log.LogError(@"Exception in getting missing business days in transit: {0}", ex);
                     }
                 }
 
-                if (distanceDataDict != null && distanceDataDict.Count() > 0)
-                    return new OkObjectResult(distanceDataDict);
-
-                var errMessage = $"No distances found for zip code: {zipCode} and branches: {branches}";
-                log.LogError(errMessage);
-
-                return new NotFoundObjectResult("Invalid branch number(s)")
-                {
-                    Value = errMessage,
-                    StatusCode = 404
-                };
+                return new OkObjectResult(transitDict);
             }
             catch (Exception ex)
             {
-                var title = "Exception in GetTransitDataByZipCode";
-                log.LogError(ex, title);
-                var teamsMessage = new TeamsMessage(title, $"Error message: {ex.Message}. Stacktrace: {ex.StackTrace}", "red", DistanceFunctions.errorLogsUrl);
+                var title = "Exception in GetBranchDistancesByZipCode";
+                log.LogError(@"{0}: {1}", title, ex);
+#if !DEBUG
+                var teamsMessage = new TeamsMessage(title, $"Error message: {ex.Message}. Stacktrace: {ex.StackTrace}", "red", errorLogsUrl);
                 teamsMessage.LogToTeams(teamsMessage);
-
-                return new StatusCodeResult(500);
+#endif
+                return new ObjectResult(ex.Message) { StatusCode = 500, Value = "Failure" };
             }
         }
     }
