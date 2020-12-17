@@ -17,6 +17,7 @@ namespace DistanceMicroservices.Functions
 {
     public class TransitFunctions
     {
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
         public static IConfiguration _config { get; set; }
 
         public TransitFunctions(IConfiguration config)
