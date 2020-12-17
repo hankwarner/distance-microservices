@@ -155,7 +155,7 @@ namespace DistanceMicroservices.Services
                                 SET DistanceInMeters = @distance  
                                 WHERE BranchNumber = @branchNum AND ZipCode = @zip";
 
-                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 30);
+                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 120);
 
                             conn.Close();
                             _logger?.LogInformation($"Saved distance data for branch number {branchNum}.");
