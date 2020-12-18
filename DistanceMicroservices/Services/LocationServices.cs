@@ -32,7 +32,7 @@ namespace DistanceMicroservices.Services
                         FROM Data.DistributionCenter 
                         WHERE BranchNumber in @branches";
 
-                    var originData = await conn.QueryAsync<GoogleOriginData>(query, new { branches }, commandTimeout: 6);
+                    var originData = await conn.QueryAsync<GoogleOriginData>(query, new { branches }, commandTimeout: 60);
 
                     conn.Close();
 
@@ -65,7 +65,7 @@ namespace DistanceMicroservices.Services
                         FROM Data.DistributionCenter 
                         WHERE BranchNumber in @branches";
 
-                    var results = await conn.QueryAsync<UPSTransitData>(query, new { branches }, commandTimeout: 3);
+                    var results = await conn.QueryAsync<UPSTransitData>(query, new { branches }, commandTimeout: 60);
 
                     conn.Close();
 
@@ -102,7 +102,7 @@ namespace DistanceMicroservices.Services
                         FROM FergusonIntegration.sourcing.DistributionCenter 
                         WHERE BranchNumber in @branches";
 
-                    var zipCodeDict = conn.Query<DistanceData>(query, new { branches }, commandTimeout: 3)
+                    var zipCodeDict = conn.Query<DistanceData>(query, new { branches }, commandTimeout: 60)
                         .ToDictionary(row => row.BranchNumber, row => row);
 
                     conn.Close();
