@@ -12,6 +12,8 @@ using DistanceMicroservices.Models;
 using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using System.IO;
+using Newtonsoft.Json;
 
 namespace DistanceMicroservices.Functions
 {
@@ -27,33 +29,32 @@ namespace DistanceMicroservices.Functions
 
 
         [FunctionName("GetBusinessDaysInTransit")]
-        [QueryStringParameter("branch", "Branch Number", Required = true)]
-        [ProducesResponseType(typeof(Dictionary<string, double?>), 200)]
+        [ProducesResponseType(typeof(Dictionary<string, UPSTransitData>), 200)]
         [ProducesResponseType(typeof(BadRequestObjectResult), 400)]
         [ProducesResponseType(typeof(NotFoundObjectResult), 404)]
         [ProducesResponseType(typeof(ObjectResult), 500)]
         public static async Task<IActionResult> GetBusinessDaysInTransit(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "transit/{destinationZip}")] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Function, "POST", Route = "transit/{destinationZip}"), RequestBodyType(typeof(List<string>), "branches")] HttpRequest req,
             string destinationZip,
             ILogger log)
         {
             try
             {
-                var query = HttpUtility.ParseQueryString(req.QueryString.ToString());
-                var branchNumArr = query.Get("branch")?.Split(",");
-                log.LogInformation(@"Branch numbers: {0}", branchNumArr.ToList());
+                var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                log.LogInformation(@"Request body: {RequestBody}", requestBody);
 
-                if (branchNumArr == null)
+                var branches = JsonConvert.DeserializeObject<List<string>>(requestBody);
+
+                if (branches == null || branches.Count() == 0)
                 {
                     log.LogWarning("No Branch Numbers provided.");
                     return new BadRequestObjectResult("Missing branch numbers")
                     {
-                        Value = "Please provide at least one branch number as a query parameter.",
+                        Value = "Please provide at least one branch number in the request body.",
                         StatusCode = 400
                     };
                 }
 
-                var branches = new List<string>(branchNumArr);
                 var _transitServices = new TransitServices(log);
                 var _locationServices = new LocationServices(log);
 
