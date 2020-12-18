@@ -31,7 +31,7 @@ namespace DistanceMicroservices.Services
                         FROM Data.DistributionCenterDistance 
                         WHERE ZipCode = @destinationZip AND BranchNumber in @branches";
 
-                    var results = await conn.QueryAsync<DistanceData>(query, new { destinationZip, branches }, commandTimeout: 10);
+                    var results = await conn.QueryAsync<DistanceData>(query, new { destinationZip, branches }, commandTimeout: 120);
 
                     conn.Close();
 
@@ -54,50 +54,6 @@ namespace DistanceMicroservices.Services
             catch (Exception ex)
             {
                 var errMessage = $"Exception in SetBranchDistances";
-                _logger.LogError(@"{0}: {1}", errMessage, ex);
-#if !DEBUG
-                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
-                teamsMessage.LogToTeams(teamsMessage);
-#endif
-                throw;
-            }
-        }
-
-        public Dictionary<string, double?> RequestBranchDistancesByZipCode(string zipCode, List<string> branches)
-        {
-            try
-            {
-                using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
-                {
-                    conn.Open();
-
-                    var query = @"
-                        SELECT BranchNumber, CEILING(DistanceInMeters * 0.0006213712) DistanceInMiles  
-                        FROM Data.DistributionCenterDistance 
-                        WHERE ZipCode = @zipCode AND BranchNumber in @branches";
-
-                    var branchesWithDistance = conn.Query(query, new { zipCode, branches }, commandTimeout: 6)
-                        .ToDictionary(row => (string)row.BranchNumber,
-                                      row => (double?)row.DistanceInMiles);
-                    
-                    conn.Close();
-
-                    return branchesWithDistance;
-                }
-            }
-            catch (SqlException ex)
-            {
-                var errMessage = $"SqlException in RequestBranchDistancesByZipCode";
-                _logger.LogError(@"{0}: {1}", errMessage, ex);
-#if !DEBUG
-                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
-                teamsMessage.LogToTeams(teamsMessage);
-#endif
-                throw;
-            }
-            catch (Exception ex)
-            {
-                var errMessage = $"Exception in RequestBranchDistancesByZipCode";
                 _logger.LogError(@"{0}: {1}", errMessage, ex);
 #if !DEBUG
                 var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
