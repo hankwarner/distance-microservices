@@ -13,6 +13,8 @@ using System.Net;
 using AzureFunctions.Extensions.Swashbuckle.Attribute;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Configuration;
+using System.IO;
+using Newtonsoft.Json;
 
 namespace DistanceMicroservices
 {
@@ -27,38 +29,36 @@ namespace DistanceMicroservices
         }
 
         [FunctionName("GetBranchDistancesByZipCode")]
-        [QueryStringParameter("branch", "Branch Number", Required = true)]
         [ProducesResponseType(typeof(Dictionary<string, double?>), 200)]
         [ProducesResponseType(typeof(BadRequestObjectResult), 400)]
         [ProducesResponseType(typeof(NotFoundObjectResult), 404)]
         [ProducesResponseType(typeof(ObjectResult), 500)]
         public static async Task<IActionResult> GetBranchDistancesByZipCode(
-            [HttpTrigger(AuthorizationLevel.Function, "get", Route = "distance/{zipCode}")] HttpRequest req,
-            string zipCode,
+            [HttpTrigger(AuthorizationLevel.Function, "POST", Route = "distance/{destinationZip}"), RequestBodyType(typeof(List<string>), "branches")] HttpRequest req,
+            string destinationZip,
             ILogger log)
         {
             try
             {
-                var query = HttpUtility.ParseQueryString(req.QueryString.ToString());
-                var branchNumArr = query.Get("branch")?.Split(",");
-                log.LogInformation(@"Branch numbers: {0}", branchNumArr);
+                var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
+                log.LogInformation(@"Request body: {RequestBody}", requestBody);
 
-                if (branchNumArr == null)
+                var branches = JsonConvert.DeserializeObject<List<string>>(requestBody);
+
+                if (branches == null || branches.Count() == 0)
                 {
                     log.LogWarning("No Branch Numbers provided.");
                     return new BadRequestObjectResult("Missing branch numbers")
                     {
-                        Value = "Please provide at least one branch number as a query parameter.",
+                        Value = "Please provide at least one branch number in the request body.",
                         StatusCode = 400
                     };
                 }
 
                 var _services = new DistanceServices(log);
-                var branches = new List<string>(branchNumArr);
-
                 var distanceDict = branches.ToDictionary(b => b, b => (double?)0.0);
 
-                await _services.SetBranchDistances(zipCode, branches, distanceDict);
+                await _services.SetBranchDistances(destinationZip, branches, distanceDict);
 
                 // Check for branches missing distance in meters
                 var branchesMissingDistance = distanceDict.Where(b => b.Value == null || b.Value == 0)
@@ -71,7 +71,7 @@ namespace DistanceMicroservices
                     try
                     {
                         // Get missing distance from Google Distance Matrix API
-                        var missingDistanceData = await _services.GetMissingBranchDistances(zipCode, branchesMissingDistance);
+                        var missingDistanceData = await _services.GetMissingBranchDistances(destinationZip, branchesMissingDistance);
 
                         // Add to distanceDict response
                         foreach(var distToAdd in missingDistanceData){ distanceDict[distToAdd.Key] = distToAdd.Value; };

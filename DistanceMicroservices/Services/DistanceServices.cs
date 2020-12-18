@@ -133,11 +133,14 @@ namespace DistanceMicroservices.Services
         {
             try
             {
-                foreach(var distanceData in branchDistances)
+                _logger?.LogInformation("SaveBranchDistanceData start");
+
+                foreach (var distanceData in branchDistances)
                 {
                     var branchNum = distanceData.BranchNumber;
                     var zip = distanceData.ZipCode;
                     var distance = distanceData.DistanceInMeters;
+                    _logger?.LogInformation($"Branch number {branchNum}. Destination zip {zip}. Distance in meters {distance}.");
 
                     try
                     {
@@ -166,6 +169,7 @@ namespace DistanceMicroservices.Services
                         _logger?.LogError(@"SqlException saving data for branch {0}: {1}", branchNum, ex);
                     }
                 }
+                _logger?.LogInformation("SaveBranchDistanceData finish");
             }
             catch (SqlException ex)
             {
