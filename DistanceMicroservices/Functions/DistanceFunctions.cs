@@ -41,7 +41,7 @@ namespace DistanceMicroservices
             try
             {
                 var requestBody = await new StreamReader(req.Body).ReadToEndAsync();
-                log.LogInformation(@"Request body: {RequestBody}", requestBody);
+                log.LogInformation(@"Destination zip: {0}. Request body: {1}", destinationZip, requestBody);
 
                 var branches = JsonConvert.DeserializeObject<List<string>>(requestBody);
 
