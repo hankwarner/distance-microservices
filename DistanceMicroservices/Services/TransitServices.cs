@@ -35,7 +35,7 @@ namespace DistanceMicroservices.Services
                         FROM Data.DistributionCenterDistance 
                         WHERE ZipCode = @zipCode AND BranchNumber in @branches";
 
-                    var results = await conn.QueryAsync<UPSTransitData>(query, new { zipCode, branches }, commandTimeout: 120);
+                    var results = await conn.QueryAsync<UPSTransitData>(query, new { zipCode, branches }, commandTimeout: 240);
 
                     conn.Close();
 
@@ -160,7 +160,7 @@ namespace DistanceMicroservices.Services
 
                     await conn.ExecuteAsync(query,
                         new { businessDaysInTransit, branchNumber, destinationZip },
-                        commandTimeout: 120);
+                        commandTimeout: 240);
 
                     conn.Close();
                     _logger?.LogInformation($"Saved data for Branch zip: {branchNumber}. Destination zip: {destinationZip}");

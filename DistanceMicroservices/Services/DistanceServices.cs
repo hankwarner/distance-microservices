@@ -31,7 +31,7 @@ namespace DistanceMicroservices.Services
                         FROM Data.DistributionCenterDistance 
                         WHERE ZipCode = @destinationZip AND BranchNumber in @branches";
 
-                    var results = await conn.QueryAsync<DistanceData>(query, new { destinationZip, branches }, commandTimeout: 120);
+                    var results = await conn.QueryAsync<DistanceData>(query, new { destinationZip, branches }, commandTimeout: 240);
 
                     conn.Close();
 
@@ -114,7 +114,7 @@ namespace DistanceMicroservices.Services
                                 SET DistanceInMeters = @distance  
                                 WHERE BranchNumber = @branchNum AND ZipCode = @zip";
 
-                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 120);
+                            await conn.ExecuteAsync(query, new { branchNum, zip, distance }, commandTimeout: 240);
 
                             conn.Close();
                             _logger?.LogInformation($"Saved distance data for branch number {branchNum}.");
