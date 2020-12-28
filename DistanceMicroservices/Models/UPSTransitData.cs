@@ -13,6 +13,7 @@ namespace DistanceMicroservices.Models
 
         public UPSTransitData() { }
 
+
         public string BranchNumber { get; set; }
 
         [JsonIgnore]
@@ -21,5 +22,7 @@ namespace DistanceMicroservices.Models
         public int? BusinessTransitDays { get; set; }
 
         public bool? SaturdayDelivery { get; set; }
+
+        public bool RequiresSaving { get; set; } = false;
     }
 }

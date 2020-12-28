@@ -14,6 +14,7 @@ namespace DistanceMicroservices.Services
     public class GoogleServices
     {
         public ILogger _logger { get; set; }
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
 
         public GoogleServices(ILogger log = null)
         {
@@ -23,25 +24,34 @@ namespace DistanceMicroservices.Services
 
         public async Task<List<DistributionCenterDistance>> GetDistanceDataFromGoogle(string destinationZip, List<GoogleOriginData> branches)
         {
-            var distances = new List<DistributionCenterDistance>();
-            var distanceTasks = new List<Task<List<DistributionCenterDistance>>>();
-
-            // Send in batches of 100 as to not exceed the request's character limit
-            var batchedBranches = branches.Batch(100);
-
-            foreach (var branchesBatch in batchedBranches)
+            try
             {
-                distanceTasks.Add(GetBatchedDistanceDataFromGoogle(destinationZip, branchesBatch.ToList()));
+                _logger?.LogInformation("GetDistanceDataFromGoogle start");
+                var distances = new List<DistributionCenterDistance>();
+                var distanceTasks = new List<Task<List<DistributionCenterDistance>>>();
+
+                // Send in batches of 100 as to not exceed the request's character limit
+                var batchedBranches = branches.Batch(100);
+
+                foreach (var branchesBatch in batchedBranches)
+                {
+                    distanceTasks.Add(GetBatchedDistanceDataFromGoogle(destinationZip, branchesBatch.ToList()));
+                }
+
+                var distancesToAdd = await Task.WhenAll(distanceTasks);
+
+                foreach (var dist in distancesToAdd)
+                {
+                    distances.AddRange(dist);
+                }
+                _logger?.LogInformation("GetDistanceDataFromGoogle finish");
+                return distances;
             }
-
-            var distancesToAdd = await Task.WhenAll(distanceTasks);
-
-            foreach (var dist in distancesToAdd)
+            catch(Exception ex)
             {
-                distances.AddRange(dist);
+                Console.WriteLine(ex);
+                throw;
             }
-
-            return distances;
         }
 
 
@@ -53,7 +63,7 @@ namespace DistanceMicroservices.Services
             foreach (var branch in branches)
             {
                 if (branch.Latitude == null || branch.Longitude == null)
-                    origins.Add($"{branch.City}+{branch.State}+{branch.Zip}");
+                    origins.Add($"{branch.Zip}");
                 else
                     origins.Add($"{branch.Latitude},{branch.Longitude}");
             }
@@ -79,7 +89,8 @@ namespace DistanceMicroservices.Services
                     {
                         BranchNumber = distributionCenter,
                         ZipCode = destinationZip,
-                        DistanceInMeters = (int)distance
+                        DistanceInMeters = (int)distance,
+                        RequiresSaving = true
                     };
                     distances.Add(distributionCenterDistance);
                 }
@@ -98,7 +109,7 @@ namespace DistanceMicroservices.Services
                 if (count == 5)
                 {
 #if !DEBUG
-                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
 #endif
                     _logger.LogError(@"{0}: {1}", errMessage, ex);

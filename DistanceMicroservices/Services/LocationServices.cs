@@ -13,6 +13,7 @@ namespace DistanceMicroservices.Services
     public class LocationServices
     {
         public ILogger _logger { get; set; }
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
 
         public LocationServices(ILogger log = null)
         {
@@ -23,6 +24,8 @@ namespace DistanceMicroservices.Services
         {
             try
             {
+                _logger?.LogInformation("GetOriginDataForGoogle start");
+
                 using (var conn = new SqlConnection(Environment.GetEnvironmentVariable("AZ_SOURCING_DB_CONN")))
                 {
                     conn.Open();
@@ -35,6 +38,7 @@ namespace DistanceMicroservices.Services
                     var originData = await conn.QueryAsync<GoogleOriginData>(query, new { branches }, commandTimeout: 240);
 
                     conn.Close();
+                    _logger?.LogInformation("GetOriginDataForGoogle finish");
 
                     return originData.ToList();
                 }
@@ -88,7 +92,7 @@ namespace DistanceMicroservices.Services
         }
 
 
-        public Dictionary<string, DistanceData> GetBranchZipCodes(List<string> branches)
+        public Dictionary<string, DistanceAndTransitData> GetBranchZipCodes(List<string> branches)
         {
             try
             {
@@ -102,7 +106,7 @@ namespace DistanceMicroservices.Services
                         FROM FergusonIntegration.sourcing.DistributionCenter 
                         WHERE BranchNumber in @branches";
 
-                    var zipCodeDict = conn.Query<DistanceData>(query, new { branches }, commandTimeout: 240)
+                    var zipCodeDict = conn.Query<DistanceAndTransitData>(query, new { branches }, commandTimeout: 240)
                         .ToDictionary(row => row.BranchNumber, row => row);
 
                     conn.Close();
