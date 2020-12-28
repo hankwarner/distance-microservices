@@ -14,6 +14,7 @@ namespace DistanceMicroservices.Services
     public class GoogleServices
     {
         public ILogger _logger { get; set; }
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
 
         public GoogleServices(ILogger log = null)
         {
@@ -108,7 +109,7 @@ namespace DistanceMicroservices.Services
                 if (count == 5)
                 {
 #if !DEBUG
-                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
 #endif
                     _logger.LogError(@"{0}: {1}", errMessage, ex);
