@@ -32,7 +32,7 @@ namespace DistanceMicroservices.Functions
         [ProducesResponseType(typeof(NotFoundObjectResult), 404)]
         [ProducesResponseType(typeof(ObjectResult), 500)]
         public static async Task<IActionResult> GetBranchDistancesByZipCode(
-            [HttpTrigger(AuthorizationLevel.Function, "POST", Route = "distance/zip/{destinationZip}"), RequestBodyType(typeof(List<string>), "branches")] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Function, "POST", Route = "distance/{destinationZip}"), RequestBodyType(typeof(List<string>), "branches")] HttpRequest req,
             string destinationZip,
             ILogger log)
         {
@@ -106,7 +106,7 @@ namespace DistanceMicroservices.Functions
         [ProducesResponseType(typeof(NotFoundObjectResult), 404)]
         [ProducesResponseType(typeof(ObjectResult), 500)]
         public static async Task<IActionResult> GetDistanceAndTransitDataByZipCode(
-            [HttpTrigger(AuthorizationLevel.Function, "POST", Route = "distance/transit/{destinationZip}"), RequestBodyType(typeof(List<string>), "branches")] HttpRequest req,
+            [HttpTrigger(AuthorizationLevel.Function, "POST", Route = "transit/{destinationZip}"), RequestBodyType(typeof(List<string>), "branches")] HttpRequest req,
             string destinationZip,
             ILogger log)
         {
