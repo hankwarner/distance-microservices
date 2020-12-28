@@ -130,28 +130,54 @@ namespace DistanceMicroservices.Functions
                 var _transitServices = new TransitServices(log);
                 var _locationServices = new DistanceServices(log);
 
-                // Call google and UPS async
+                // Call google and UPS asynchronously
                 var googleDistanceDataTask = _locationServices.GetBranchDistances(branches, destinationZip);
                 var transitDataTask = _transitServices.GetBusinessDaysInTransit(branches, destinationZip);
 
                 await Task.WhenAll(googleDistanceDataTask, transitDataTask);
 
-                // TODO: handle exceptions
+                var distanceDict = new Dictionary<string, DistanceAndTransitData>();
+                
+                // If both Google and UPS failed
+                if(googleDistanceDataTask.Result == null && transitDataTask.Result == null)
+                {
+                    var msg = "Both UPS and Google calls failed.";
+                    log.LogWarning(msg);
+                    return new ObjectResult(msg) { StatusCode = 500, Value = "Failure" };
+                }
 
-                // Combine data from Google and UPS into a single dict
-                var distanceDict = googleDistanceDataTask.Result
-                    .Join(transitDataTask.Result,
-                        dist => dist.Key,
-                        trans => trans.Key,
-                        (dist, trans) => new DistanceAndTransitData(dist.Key, dist.Value.DistanceInMeters, trans.Value.BusinessTransitDays, trans.Value.SaturdayDelivery, destinationZip) 
-                        { 
-                            RequiresSaving = dist.Value.RequiresSaving || trans.Value.RequiresSaving
-                        })
-                    .ToDictionary(d => d.BranchNumber, d => d);
+                // If Google failed
+                if (googleDistanceDataTask.Result == null)
+                {
+                    // Add only the UPS data to response
+                    distanceDict = transitDataTask.Result
+                        .ToDictionary(dist => dist.Key, dist => new DistanceAndTransitData(dist.Key, null, dist.Value.BusinessTransitDays, dist.Value.SaturdayDelivery, destinationZip));
+                }
+                // If UPS failed
+                else if (transitDataTask.Result == null)
+                {
+                    // Add only the Google data to response
+                    distanceDict = googleDistanceDataTask.Result
+                        .ToDictionary(dist => dist.Key, dist => new DistanceAndTransitData(dist.Key, dist.Value.DistanceInMeters, null, null, destinationZip));
+                }
+                // Both responses successful
+                else
+                {
+                    // Combine Google and UPS data into response
+                    distanceDict = googleDistanceDataTask.Result
+                        .Join(transitDataTask.Result,
+                            dist => dist.Key,
+                            trans => trans.Key,
+                            (dist, trans) => new DistanceAndTransitData(dist.Key, dist.Value.DistanceInMeters, trans.Value.BusinessTransitDays, trans.Value.SaturdayDelivery, destinationZip)
+                            {
+                                RequiresSaving = dist.Value.RequiresSaving || trans.Value.RequiresSaving
+                            })
+                        .ToDictionary(d => d.BranchNumber, d => d);
+                }
 
-                // async save data
                 var distDataToSave = distanceDict.Where(d => d.Value.RequiresSaving).Select(d => d.Value).ToList();
 
+                // Save any missing data to the DB asynchronously
                 if (distDataToSave.Any())
                 {
                     _ = _locationServices.SaveBranchDistanceData(distDataToSave);
@@ -161,7 +187,7 @@ namespace DistanceMicroservices.Functions
             }
             catch (Exception ex)
             {
-                var title = "Exception in GetBranchDistancesByZipCode";
+                var title = "Exception in GetDistanceAndTransitDataByZipCode";
                 log.LogError(@"{0}: {1}", title, ex);
 #if !DEBUG
                 var teamsMessage = new TeamsMessage(title, $"Error message: {ex.Message}. Stacktrace: {ex.StackTrace}", "red", errorLogsUrl);
