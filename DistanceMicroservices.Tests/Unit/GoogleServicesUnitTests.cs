@@ -26,7 +26,7 @@ namespace DistanceMicroservices.Tests
             var googleDistanceData = await _googleServices.GetDistanceDataFromGoogle(zip, origins);
             var distance = googleDistanceData.FirstOrDefault(d => d.BranchNumber == "6").DistanceInMeters;
 
-            Assert.InRange(distance, 3969194, 3971194);
+            Assert.InRange((double)distance, 3969194, 3971194);
         }
 
 
@@ -40,7 +40,7 @@ namespace DistanceMicroservices.Tests
             var googleDistanceData = await _googleServices.GetDistanceDataFromGoogle(zip, origins);
             var distance = googleDistanceData.FirstOrDefault(d => d.BranchNumber == "6").DistanceInMeters;
 
-            Assert.InRange(distance, 3969194, 3980252);
+            Assert.InRange((double)distance, 3969194, 3980252);
         }
     }
 }
