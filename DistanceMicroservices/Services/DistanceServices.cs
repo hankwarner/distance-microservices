@@ -13,6 +13,7 @@ namespace DistanceMicroservices.Services
     public class DistanceServices
     {
         public ILogger _logger { get; set; }
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
 
         public DistanceServices(ILogger log = null)
         {
@@ -106,7 +107,7 @@ namespace DistanceMicroservices.Services
                 var errMessage = $"SqlException in SetBranchDistances";
                 _logger.LogError(@"{0}: {1}", errMessage, ex);
 #if !DEBUG
-                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                 teamsMessage.LogToTeams(teamsMessage);
 #endif
                 throw;
@@ -116,7 +117,7 @@ namespace DistanceMicroservices.Services
                 var errMessage = $"Exception in SetBranchDistances";
                 _logger.LogError(@"{0}: {1}", errMessage, ex);
 #if !DEBUG
-                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                 teamsMessage.LogToTeams(teamsMessage);
 #endif
                 throw;
@@ -177,7 +178,7 @@ namespace DistanceMicroservices.Services
                 if (count == 5)
                 {
 #if !DEBUG
-                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
 #endif
                     _logger.LogError(@"{0}: {1}", errMessage, ex);
@@ -211,7 +212,7 @@ namespace DistanceMicroservices.Services
                 if (count == 5)
                 {
 #if !DEBUG
-                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
 #endif
                     _logger.LogError(@"{0}: {1}", errMessage, ex);
@@ -253,7 +254,7 @@ namespace DistanceMicroservices.Services
                 if (count == 5)
                 {
 #if !DEBUG
-                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", DistanceFunctions.errorLogsUrl);
+                    var teamsMessage = new TeamsMessage(errMessage, $"Error: {ex.Message}. Stacktrace: {ex.StackTrace}", "yellow", errorLogsUrl);
                     teamsMessage.LogToTeams(teamsMessage);
 #endif
                     _logger.LogError(@"{0}: {1}", errMessage, ex);

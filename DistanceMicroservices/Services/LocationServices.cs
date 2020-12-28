@@ -13,6 +13,7 @@ namespace DistanceMicroservices.Services
     public class LocationServices
     {
         public ILogger _logger { get; set; }
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
 
         public LocationServices(ILogger log = null)
         {

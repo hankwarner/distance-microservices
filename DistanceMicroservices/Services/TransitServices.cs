@@ -15,6 +15,7 @@ namespace DistanceMicroservices.Services
     public class TransitServices
     {
         public ILogger _logger { get; set; }
+        public static string errorLogsUrl = Environment.GetEnvironmentVariable("ERR_LOGS_URL");
 
         public TransitServices(ILogger log = null)
         {
